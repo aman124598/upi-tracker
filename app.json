@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "UPI Spend Tracker",
+    "slug": "upi-spend-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "android": {
+      "permissions": [
+        "READ_SMS",
+        "RECEIVE_SMS",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "package": "com.upispendtracker.app"
+    },
+    "plugins": [],
+    "extra": {
+      "eas": {
+        "projectId": "ed853402-36fa-49f4-8114-f17042459057"
+      }
+    }
+  }
+}

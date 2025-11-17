@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.expo/
+.expo-shared/
+npm-debug.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+*.tmp
+*.temp
+
+# Database
+*.db
+*.db-journal
+
+# Build
+dist/
+build/
+android/
+ios/
+
+# Environment
+.env
+.env.local
+.env.development
+.env.production
