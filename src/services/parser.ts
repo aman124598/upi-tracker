@@ -101,9 +101,18 @@ const isFailedTransaction = (message: string): boolean => {
 const extractAmount = (message: string): number | null => {
   // Pattern: Rs, INR, ₹ followed by amount
   const patterns = [
+    // Bank-specific patterns
     /(?:rs\.?|inr|₹)\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gi,
     /(?:debited|paid|transferred|sent)\s(?:rs\.?|inr|₹)?\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gi,
-    /(?:amount|amt)(?:\s?:?\s?)(?:rs\.?|inr|₹)?\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gi,
+    /(?:amount|amt)(?:\s?:\s?)(?:rs\.?|inr|₹)?\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gi,
+    // SBI format: "Rs 450.00 debited"
+    /(?:rs|inr)\s?(\d+\.\d{2})\s+debited/gi,
+    // HDFC/ICICI format: "INR 1200 debited" or "Rs.1200 debited"
+    /(?:rs\.|inr)\s?(\d+(?:\.\d{2})?)\s+(?:debited|paid)/gi,
+    // Axis/Kotak format: "Amount: Rs.2500.00"
+    /amount\s?:\s?(?:rs\.|inr|₹)?\s?(\d+(?:\.\d{2})?)/gi,
+    // Generic format: "paid Rs.750.50"
+    /paid\s+(?:rs\.|inr|₹)?\s?(\d+(?:\.\d{2})?)/gi,
   ];
 
   for (const pattern of patterns) {
@@ -139,6 +148,16 @@ const extractMerchant = (message: string): string | null => {
     
     // Pattern: "VPA: <merchant@upi>"
     /(?:vpa|VPA)(?:\s?:?\s?)([A-Za-z0-9._-]+@[A-Za-z0-9._-]+)/i,
+    
+    // Bank-specific patterns
+    // SBI: "to VPA zomato@paytm"
+    /to\s+VPA\s+([A-Za-z0-9._-]+@[A-Za-z0-9._-]+)/i,
+    // HDFC/ICICI: "Paid to Swiggy via"
+    /paid\s+to\s+([A-Za-z0-9\s&]+)\s+via/i,
+    // Axis: "transferred to FLIPKART"
+    /transferred\s+to\s+([A-Za-z0-9\s&]+)(?:\s+via|\s+on|\.|$)/i,
+    // Generic: "Payment of Rs X made to <merchant>"
+    /payment.*made\s+to\s+([A-Za-z0-9\s&]+)(?:\s+via|\.|$)/i,
   ];
 
   for (const pattern of patterns) {

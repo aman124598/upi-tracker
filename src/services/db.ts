@@ -6,26 +6,96 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SQLite from 'expo-sqlite';
 import { Transaction, TransactionFilter, DailySpending, MerchantSpending } from '../types';
 
 const STORAGE_KEY = '@upi_tracker_transactions';
 
 let transactionsCache: Transaction[] = [];
 let nextId = 1;
+type ChangeEvent = {
+  action: 'insert' | 'update' | 'delete' | 'reset';
+  data?: any;
+};
+
+type ChangeCallback = (ev: ChangeEvent) => void;
+let listeners: ChangeCallback[] = [];
+
+export const addChangeListener = (cb: ChangeCallback) => {
+  listeners.push(cb);
+  return () => {
+    listeners = listeners.filter((l) => l !== cb);
+  };
+};
+
+const emitChange = (ev: ChangeEvent) => {
+  listeners.forEach((cb) => {
+    try {
+      cb(ev);
+    } catch (err) {
+      console.error('Error in DB change listener:', err);
+    }
+  });
+};
 
 const loadTransactions = async (): Promise<Transaction[]> => {
+  // Prefer native SQLite (so native SMS receiver entries are visible)
   try {
-    const data = await AsyncStorage.getItem(STORAGE_KEY);
-    if (data) {
-      transactionsCache = JSON.parse(data);
-      if (transactionsCache.length > 0) {
-        nextId = Math.max(...transactionsCache.map(t => t.id || 0)) + 1;
-      }
+    const db = SQLite.openDatabase('upi_tracker.db');
+    const rows: Transaction[] = await new Promise((resolve, reject) => {
+      db.transaction((tx) => {
+        tx.executeSql(
+          `CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, amount REAL, merchant TEXT, category TEXT, date TEXT, source TEXT, upiRef TEXT, rawMessage TEXT, createdAt TEXT)`
+        );
+        tx.executeSql(
+          `SELECT id, amount, merchant, category, date, source, upiRef, rawMessage, createdAt FROM transactions ORDER BY date DESC`,
+          [],
+          (_, result) => {
+            const items: Transaction[] = [];
+            for (let i = 0; i < result.rows.length; i++) {
+              const r: any = result.rows.item(i);
+              items.push({
+                id: r.id,
+                amount: r.amount,
+                merchant: r.merchant || 'Unknown',
+                category: r.category || 'Uncategorized',
+                date: r.date || r.createdAt || new Date().toISOString(),
+                source: r.source || 'sms',
+                upiRef: r.upiRef || undefined,
+                rawMessage: r.rawMessage || undefined,
+                createdAt: r.createdAt || new Date().toISOString(),
+              });
+            }
+            resolve(items);
+          },
+          (_, err) => {
+            reject(err);
+            return false;
+          }
+        );
+      }, (e) => reject(e));
+    });
+
+    transactionsCache = rows;
+    if (transactionsCache.length > 0) {
+      nextId = Math.max(...transactionsCache.map(t => t.id || 0)) + 1;
     }
     return transactionsCache;
   } catch (error) {
-    console.error('Error loading transactions:', error);
-    return [];
+    // Fallback to AsyncStorage if SQLite is unavailable
+    try {
+      const data = await AsyncStorage.getItem(STORAGE_KEY);
+      if (data) {
+        transactionsCache = JSON.parse(data);
+        if (transactionsCache.length > 0) {
+          nextId = Math.max(...transactionsCache.map(t => t.id || 0)) + 1;
+        }
+      }
+      return transactionsCache;
+    } catch (err) {
+      console.error('Error loading transactions (both SQLite and AsyncStorage):', err);
+      return [];
+    }
   }
 };
 
@@ -39,36 +109,159 @@ const saveTransactions = async (transactions: Transaction[]): Promise<void> => {
 };
 
 export const initDatabase = async (): Promise<void> => {
+  // Ensure SQLite table exists and load
   await loadTransactions();
-  console.log('✅ Local database initialized');
+  console.log('✅ Local database initialized (SQLite fallback to AsyncStorage)');
+  
+  // Migrate and categorize unlabelled rows from native inserts
+  await migrateAndCategorizeRows();
+};
+
+/**
+ * Migrate native-inserted rows that have null/empty category
+ * Runs categorization on them so dashboard shows proper categories
+ */
+export const migrateAndCategorizeRows = async (): Promise<void> => {
+  try {
+    const db = SQLite.openDatabase('upi_tracker.db');
+    // Import categorizer
+    const { categorizeTransaction } = await import('./categorizer');
+    
+    await new Promise<void>((resolve, reject) => {
+      db.transaction((tx) => {
+        // Find rows with null or 'Uncategorized' category
+        tx.executeSql(
+          `SELECT id, merchant FROM transactions WHERE category IS NULL OR category = 'Uncategorized' OR category = ''`,
+          [],
+          (_, result) => {
+            const updates: Array<{ id: number; category: string }> = [];
+            for (let i = 0; i < result.rows.length; i++) {
+              const row: any = result.rows.item(i);
+              const category = categorizeTransaction(row.merchant || 'Unknown');
+              updates.push({ id: row.id, category });
+            }
+            
+            // Apply categorization updates
+            updates.forEach(({ id, category }) => {
+              tx.executeSql(
+                `UPDATE transactions SET category = ? WHERE id = ?`,
+                [category, id],
+                () => {},
+                (_, err) => {
+                  console.warn('Failed to update category for row', id, err);
+                  return false;
+                }
+              );
+            });
+            
+            if (updates.length > 0) {
+              console.log(`✅ Categorized ${updates.length} unlabelled transactions`);
+            }
+            resolve();
+          },
+          (_, err) => {
+            reject(err);
+            return false;
+          }
+        );
+      }, (e) => reject(e));
+    });
+  } catch (err) {
+    console.warn('Migration/categorization skipped (SQLite not available or error):', err);
+  }
 };
 
 export const insertTransaction = async (transaction: Transaction): Promise<number> => {
-  const transactions = await loadTransactions();
-  const id = nextId++;
-  const newTransaction = {
-    ...transaction,
-    id,
-    createdAt: transaction.createdAt || new Date().toISOString(),
-  };
-  transactions.push(newTransaction);
-  await saveTransactions(transactions);
-  return id;
+  // Insert into SQLite (so native receiver or background insertions appear)
+  try {
+    const db = SQLite.openDatabase('upi_tracker.db');
+    const createdAt = transaction.createdAt || new Date().toISOString();
+    await new Promise<void>((resolve, reject) => {
+      db.transaction((tx) => {
+        tx.executeSql(
+          `CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, amount REAL, merchant TEXT, category TEXT, date TEXT, source TEXT, upiRef TEXT, rawMessage TEXT, createdAt TEXT)`
+        );
+        tx.executeSql(
+          `INSERT INTO transactions (amount, merchant, category, date, source, upiRef, rawMessage, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [transaction.amount, transaction.merchant, transaction.category || null, transaction.date || createdAt, transaction.source || 'manual', transaction.upiRef || null, transaction.rawMessage || null, createdAt],
+          (_, result) => {
+            // SQLite rowId
+            const rowId = (result as any).insertId || (result as any).insertId === 0 ? (result as any).insertId : undefined;
+            resolve();
+          },
+          (_, err) => { reject(err); return false; }
+        );
+      }, (e) => reject(e));
+    });
+
+    // Refresh cache by loading transactions again
+    const all = await loadTransactions();
+    emitChange({ action: 'insert', data: transaction });
+    return transaction.id || nextId++;
+  } catch (err) {
+    // Fallback to AsyncStorage
+    const transactions = await loadTransactions();
+    const id = nextId++;
+    const newTransaction = {
+      ...transaction,
+      id,
+      createdAt: transaction.createdAt || new Date().toISOString(),
+    };
+    transactions.push(newTransaction);
+    await saveTransactions(transactions);
+    emitChange({ action: 'insert', data: newTransaction });
+    return id;
+  }
 };
 
 export const updateTransaction = async (id: number, updates: Partial<Transaction>): Promise<void> => {
-  const transactions = await loadTransactions();
-  const index = transactions.findIndex(t => t.id === id);
-  if (index !== -1) {
-    transactions[index] = { ...transactions[index], ...updates };
-    await saveTransactions(transactions);
+  try {
+    const db = SQLite.openDatabase('upi_tracker.db');
+    await new Promise<void>((resolve, reject) => {
+      db.transaction((tx) => {
+        const fields: string[] = [];
+        const values: any[] = [];
+        if (updates.amount !== undefined) { fields.push('amount = ?'); values.push(updates.amount); }
+        if (updates.merchant !== undefined) { fields.push('merchant = ?'); values.push(updates.merchant); }
+        if (updates.category !== undefined) { fields.push('category = ?'); values.push(updates.category); }
+        if (updates.date !== undefined) { fields.push('date = ?'); values.push(updates.date); }
+        if (updates.source !== undefined) { fields.push('source = ?'); values.push(updates.source); }
+        if (updates.upiRef !== undefined) { fields.push('upiRef = ?'); values.push(updates.upiRef); }
+        if (updates.rawMessage !== undefined) { fields.push('rawMessage = ?'); values.push(updates.rawMessage); }
+        if (fields.length === 0) { resolve(); return; }
+        values.push(id);
+        const sql = `UPDATE transactions SET ${fields.join(', ')} WHERE id = ?`;
+        tx.executeSql(sql, values, () => resolve(), (_, err) => { reject(err); return false; });
+      }, (e) => reject(e));
+    });
+    emitChange({ action: 'update', data: { id, updates } });
+  } catch (err) {
+    // Fallback to AsyncStorage update
+    const transactions = await loadTransactions();
+    const index = transactions.findIndex(t => t.id === id);
+    if (index !== -1) {
+      transactions[index] = { ...transactions[index], ...updates };
+      await saveTransactions(transactions);
+      emitChange({ action: 'update', data: { id, updates } });
+    }
   }
 };
 
 export const deleteTransaction = async (id: number): Promise<void> => {
-  const transactions = await loadTransactions();
-  const filtered = transactions.filter(t => t.id !== id);
-  await saveTransactions(filtered);
+  try {
+    const db = SQLite.openDatabase('upi_tracker.db');
+    await new Promise<void>((resolve, reject) => {
+      db.transaction((tx) => {
+        tx.executeSql(`DELETE FROM transactions WHERE id = ?`, [id], () => resolve(), (_, err) => { reject(err); return false; });
+      }, (e) => reject(e));
+    });
+    emitChange({ action: 'delete', data: { id } });
+  } catch (err) {
+    const transactions = await loadTransactions();
+    const filtered = transactions.filter(t => t.id !== id);
+    await saveTransactions(filtered);
+    emitChange({ action: 'delete', data: { id } });
+  }
 };
 
 export const getAllTransactions = async (): Promise<Transaction[]> => {
@@ -153,6 +346,7 @@ export const getTransactionCount = async (): Promise<number> => {
 
 export const deleteAllTransactions = async (): Promise<void> => {
   await saveTransactions([]);
+  emitChange({ action: 'reset' });
 };
 
 export const getMonthlyStats = async (month: string) => {

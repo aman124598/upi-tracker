@@ -8,6 +8,7 @@ import * as SMS from 'expo-sms';
 import { PermissionsAndroid, Platform, DeviceEventEmitter, NativeModules, NativeEventEmitter } from 'react-native';
 import { parseSMS, isOTPMessage, isPromotionalMessage } from './parser';
 import { categorizeTransaction } from './categorizer';
+import { useTransactionStore } from '../store/transactionStore';
 import { insertTransaction, transactionExists } from './db';
 import { Transaction } from '../types';
 
@@ -96,9 +97,57 @@ export const startSMSMonitoring = async (): Promise<boolean> => {
     // For Expo managed workflow, you'll need expo-dev-client
     smsListener = DeviceEventEmitter.addListener(
       'onSMSReceived',
-      async (message: { body: string; address: string }) => {
-        console.log('📱 New SMS received from:', message.address);
-        await processSingleSMS(message.body);
+      async (message: any) => {
+        // message may be either { body, address } or structured { body, sender, amount, merchant, upiRef }
+        try {
+          console.log('📱 New SMS event received:', message);
+
+          // If native emitter provided structured payload, prefer it
+          if (message && (message.amount !== undefined || message.merchant || message.upiRef)) {
+            const rawMessage = message.body || '';
+            const upiRef = message.upiRef || undefined;
+
+            // Avoid duplicates: check by upiRef or rawMessage
+            const exists = upiRef ? await transactionExists(upiRef) : await transactionExists(rawMessage);
+            if (exists) {
+              console.log('⏭️ Duplicate transaction detected, skipping JS insert');
+              // Ensure UI/store reloads data from native DB (in case native inserted while app running)
+              try {
+                const store = useTransactionStore.getState();
+                if (store && store.refreshTransactions) {
+                  store.refreshTransactions();
+                }
+              } catch (e) {
+                console.warn('Failed to refresh store after native SMS insert:', e);
+              }
+              return;
+            }
+
+            const merchantName = message.merchant || 'Unknown';
+            const categorized = categorizeTransaction(merchantName);
+            const transaction: Transaction = {
+              amount: Number(message.amount) || 0,
+              merchant: merchantName,
+              category: categorized,
+              date: new Date().toISOString(),
+              source: 'sms',
+              upiRef,
+              rawMessage,
+            };
+
+            await insertTransaction(transaction);
+            console.log('✅ Inserted transaction from native event:', transaction.merchant, '₹' + transaction.amount);
+            return;
+          }
+
+          // Fallback to raw SMS processing
+          if (message && message.body) {
+            console.log('📱 New SMS received from:', message.address || 'unknown');
+            await processSingleSMS(message.body);
+          }
+        } catch (err) {
+          console.error('Error handling onSMSReceived event:', err);
+        }
       }
     );
 

@@ -12,6 +12,7 @@ import {
   MerchantSpending,
 } from '../types';
 import * as db from '../services/db';
+import { addChangeListener } from '../services/db';
 
 interface TransactionStore {
   // State
@@ -256,3 +257,21 @@ export const useTransactionStore = create<TransactionStore>((set, get) => ({
     return transactions.length;
   },
 }));
+
+// Subscribe to DB changes to keep store in sync (realtime-ish updates)
+addChangeListener((ev) => {
+  try {
+    const { currentMonth } = useTransactionStore.getState();
+    if (ev.action === 'insert') {
+      const t = ev.data as Transaction | undefined;
+      if (t && t.date && t.date.startsWith(currentMonth)) {
+        useTransactionStore.getState().loadTransactionsByMonth(currentMonth);
+      }
+    } else {
+      // For updates, deletes and reset, refresh current month
+      useTransactionStore.getState().loadTransactionsByMonth(currentMonth);
+    }
+  } catch (err) {
+    console.error('Error handling DB change event in store:', err);
+  }
+});
