@@ -9,3 +9,4 @@ export { SpendingTrendChart } from './SpendingTrendChart';
 export { MonthlySummaryCard } from './MonthlySummaryCard';
 export { CategorySelector } from './CategorySelector';
 export { TopMerchants } from './TopMerchants';
+export { SyncStatusIndicator } from './SyncStatusIndicator';

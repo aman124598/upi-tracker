@@ -23,6 +23,7 @@ import { DebugScreen } from './src/screens/DebugScreen';
 // Services
 import { initDatabase } from './src/services/db';
 import { startSMSMonitoring, checkSMSPermission, requestSMSPermission } from './src/services/smsReader';
+import { initSyncService } from './src/services/syncService';
 
 const Tab = createBottomTabNavigator();
 
@@ -38,6 +39,20 @@ export default function App() {
         // Initialize database
         await initDatabase();
         console.log('✅ Database initialized successfully');
+        
+        // Initialize Firebase sync (will gracefully fail if not configured)
+        try {
+          const unsubscribeSync = await initSyncService();
+          console.log('✅ Firebase sync enabled');
+          
+          // Cleanup on app unmount
+          return () => {
+            if (unsubscribeSync) unsubscribeSync();
+          };
+        } catch (syncError) {
+          console.log('⚠️ Firebase sync not configured yet - working offline only');
+          console.log('💡 Follow setup instructions to enable cloud sync');
+        }
         
         // Start SMS monitoring for automatic transaction detection
         const hasPermission = await checkSMSPermission();

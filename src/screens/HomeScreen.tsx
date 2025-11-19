@@ -16,6 +16,7 @@ import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { useTransactionStore } from '../store/transactionStore';
 import { MonthlySummaryCard } from '../components/MonthlySummaryCard';
 import { TransactionCard } from '../components/TransactionCard';
+import { SyncStatusIndicator } from '../components/SyncStatusIndicator';
 import { getMonthName, getCurrentMonth } from '../utils/helpers';
 
 export const HomeScreen = () => {
@@ -48,6 +49,9 @@ export const HomeScreen = () => {
         <RefreshControl refreshing={loading} onRefresh={handleRefresh} />
       }
     >
+      {/* Sync Status Indicator */}
+      <SyncStatusIndicator />
+      
       {/* Monthly Summary */}
       <MonthlySummaryCard
         totalSpent={monthlyTotal}

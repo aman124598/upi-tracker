@@ -11,6 +11,21 @@ import { Transaction, TransactionFilter, DailySpending, MerchantSpending } from 
 
 const STORAGE_KEY = '@upi_tracker_transactions';
 
+// Firebase sync (lazy import to avoid circular dependencies)
+let uploadTransaction: ((transaction: Transaction, userId?: string) => Promise<void>) | null = null;
+const getUploadFunction = async () => {
+  if (!uploadTransaction) {
+    try {
+      const syncService = await import('./syncService');
+      uploadTransaction = syncService.uploadTransaction;
+    } catch (error) {
+      console.warn('Firebase sync not available:', error);
+      uploadTransaction = async () => {}; // No-op if Firebase not set up
+    }
+  }
+  return uploadTransaction;
+};
+
 let transactionsCache: Transaction[] = [];
 let nextId = 1;
 type ChangeEvent = {
@@ -38,7 +53,7 @@ const emitChange = (ev: ChangeEvent) => {
   });
 };
 
-const loadTransactions = async (): Promise<Transaction[]> => {
+export const loadTransactions = async (): Promise<Transaction[]> => {
   // Prefer native SQLite (so native SMS receiver entries are visible)
   try {
     const db = SQLite.openDatabase('upi_tracker.db');
@@ -197,6 +212,14 @@ export const insertTransaction = async (transaction: Transaction): Promise<numbe
     // Refresh cache by loading transactions again
     const all = await loadTransactions();
     emitChange({ action: 'insert', data: transaction });
+    
+    // Auto-sync to Firebase (fire and forget)
+    getUploadFunction().then(upload => {
+      upload(transaction).catch(err => 
+        console.warn('Firebase upload skipped:', err)
+      );
+    });
+    
     return transaction.id || nextId++;
   } catch (err) {
     // Fallback to AsyncStorage
@@ -208,6 +231,13 @@ export const insertTransaction = async (transaction: Transaction): Promise<numbe
       createdAt: transaction.createdAt || new Date().toISOString(),
     };
     transactions.push(newTransaction);
+    
+    // Auto-sync to Firebase
+    getUploadFunction().then(upload => {
+      upload(newTransaction).catch(err => 
+        console.warn('Firebase upload skipped:', err)
+      );
+    });
     await saveTransactions(transactions);
     emitChange({ action: 'insert', data: newTransaction });
     return id;
@@ -234,6 +264,18 @@ export const updateTransaction = async (id: number, updates: Partial<Transaction
         tx.executeSql(sql, values, () => resolve(), (_, err) => { reject(err); return false; });
       }, (e) => reject(e));
     });
+    
+    // Get updated transaction and sync to Firebase
+    const allTransactions = await loadTransactions();
+    const updatedTransaction = allTransactions.find(t => t.id === id);
+    if (updatedTransaction) {
+      getUploadFunction().then(upload => {
+        upload(updatedTransaction).catch(err => 
+          console.warn('Firebase upload skipped:', err)
+        );
+      });
+    }
+    
     emitChange({ action: 'update', data: { id, updates } });
   } catch (err) {
     // Fallback to AsyncStorage update
@@ -242,6 +284,14 @@ export const updateTransaction = async (id: number, updates: Partial<Transaction
     if (index !== -1) {
       transactions[index] = { ...transactions[index], ...updates };
       await saveTransactions(transactions);
+      
+      // Sync updated transaction to Firebase
+      getUploadFunction().then(upload => {
+        upload(transactions[index]).catch(err => 
+          console.warn('Firebase upload skipped:', err)
+        );
+      });
+      
       emitChange({ action: 'update', data: { id, updates } });
     }
   }
