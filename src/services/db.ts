@@ -124,11 +124,22 @@ const saveTransactions = async (transactions: Transaction[]): Promise<void> => {
 };
 
 export const initDatabase = async (): Promise<void> => {
-  // Ensure SQLite table exists and load
-  await loadTransactions();
+  // Ensure SQLite table exists and load with timeout
+  const loadPromise = loadTransactions();
+  const timeoutPromise = new Promise<Transaction[]>((_, reject) => 
+    setTimeout(() => reject(new Error('Database load timeout')), 3000)
+  );
+  
+  try {
+    await Promise.race([loadPromise, timeoutPromise]);
+  } catch (error) {
+    console.warn('Database load timeout or error:', error);
+    // Continue anyway - empty cache is better than hanging
+  }
+  
   console.log('✅ Local database initialized (SQLite fallback to AsyncStorage)');
   
-  // Migrate and categorize unlabelled rows from native inserts
+  // Migrate and categorize unlabelled rows
   await migrateAndCategorizeRows();
 };
 

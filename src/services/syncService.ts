@@ -1,4 +1,4 @@
-import { getUserTransactionsRef, getUserSyncStatusRef } from '../config/firebase';
+import { getUserTransactionsRef, getUserSyncStatusRef, isFirebaseAvailable } from '../config/firebase';
 import { loadTransactions, insertTransaction } from './db';
 import { Transaction } from '../types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -48,6 +48,11 @@ const updateSyncStatus = (updates: Partial<SyncStatus>) => {
  * Upload a single transaction to Firestore
  */
 export const uploadTransaction = async (transaction: Transaction, userId: string = 'default'): Promise<void> => {
+  if (!isFirebaseAvailable) {
+    console.log('⚠️ Firebase not available - skipping upload');
+    return;
+  }
+
   try {
     const transactionsRef = getUserTransactionsRef(userId);
     
@@ -68,6 +73,11 @@ export const uploadTransaction = async (transaction: Transaction, userId: string
  * Download all transactions from Firestore
  */
 export const downloadTransactions = async (userId: string = 'default'): Promise<Transaction[]> => {
+  if (!isFirebaseAvailable) {
+    console.log('⚠️ Firebase not available - returning empty list');
+    return [];
+  }
+
   try {
     const transactionsRef = getUserTransactionsRef(userId);
     const snapshot = await transactionsRef.get();
@@ -101,6 +111,11 @@ export const downloadTransactions = async (userId: string = 'default'): Promise<
  * Strategy: Two-way merge using timestamps
  */
 export const syncWithFirestore = async (userId: string = 'default'): Promise<void> => {
+  if (!isFirebaseAvailable) {
+    console.log('⚠️ Firebase not available - skipping sync');
+    return;
+  }
+
   if (currentStatus.isSyncing) {
     console.log('⏳ Sync already in progress, skipping...');
     return;
@@ -178,49 +193,59 @@ export const syncWithFirestore = async (userId: string = 'default'): Promise<voi
 /**
  * Enable real-time sync (listen to Firestore changes)
  */
-export const enableRealtimeSync = (userId: string = 'default'): () => void => {
-  const transactionsRef = getUserTransactionsRef(userId);
-  
-  const unsubscribe = transactionsRef.onSnapshot(
-    async (snapshot) => {
-      if (!snapshot.metadata.hasPendingWrites) {
-        // Changes from server, not our own writes
-        const changes = snapshot.docChanges();
-        
-        for (const change of changes) {
-          if (change.type === 'added' || change.type === 'modified') {
-            const data = change.doc.data();
-            const transaction: Transaction = {
-              id: data.id,
-              amount: data.amount,
-              merchant: data.merchant,
-              category: data.category,
-              date: data.date,
-              source: data.source,
-              upiRef: data.upiRef,
-              rawMessage: data.rawMessage,
-              createdAt: data.createdAt,
-            };
-            
-            await insertTransaction(transaction);
-            console.log('🔄 Real-time update:', transaction.id);
+export const enableRealtimeSync = (userId: string = 'default'): (() => void) | null => {
+  if (!isFirebaseAvailable) {
+    console.log('⚠️ Firebase not available - real-time sync disabled');
+    return null;
+  }
+
+  try {
+    const transactionsRef = getUserTransactionsRef(userId);
+    
+    const unsubscribe = transactionsRef.onSnapshot(
+      async (snapshot) => {
+        if (!snapshot.metadata.hasPendingWrites) {
+          // Changes from server, not our own writes
+          const changes = snapshot.docChanges();
+          
+          for (const change of changes) {
+            if (change.type === 'added' || change.type === 'modified') {
+              const data = change.doc.data();
+              const transaction: Transaction = {
+                id: data.id,
+                amount: data.amount,
+                merchant: data.merchant,
+                category: data.category,
+                date: data.date,
+                source: data.source,
+                upiRef: data.upiRef,
+                rawMessage: data.rawMessage,
+                createdAt: data.createdAt,
+              };
+              
+              await insertTransaction(transaction);
+              console.log('🔄 Real-time update:', transaction.id);
+            }
           }
         }
+      },
+      (error) => {
+        console.error('❌ Real-time sync error:', error);
+        updateSyncStatus({ error: error.message });
       }
-    },
-    (error) => {
-      console.error('❌ Real-time sync error:', error);
-      updateSyncStatus({ error: error.message });
-    }
-  );
-  
-  return unsubscribe;
+    );
+    
+    return unsubscribe;
+  } catch (error) {
+    console.error('❌ Failed to enable real-time sync:', error);
+    return null;
+  }
 };
 
 /**
  * Initialize sync service
  */
-export const initSyncService = async (userId: string = 'default'): Promise<() => void> => {
+export const initSyncService = async (userId: string = 'default'): Promise<(() => void) | null> => {
   try {
     // Load last sync time from storage
     const lastSyncStr = await AsyncStorage.getItem(LAST_SYNC_KEY);
@@ -228,17 +253,31 @@ export const initSyncService = async (userId: string = 'default'): Promise<() =>
     
     updateSyncStatus({ lastSyncTime });
 
-    // Perform initial sync
-    await syncWithFirestore(userId);
+    // Try to perform initial sync with a timeout
+    try {
+      const syncPromise = syncWithFirestore(userId);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Sync timeout')), 5000)
+      );
+      await Promise.race([syncPromise, timeoutPromise]);
+    } catch (syncError: any) {
+      console.warn('⚠️ Initial sync skipped or failed:', syncError.message);
+      // Don't throw - let app continue without sync
+    }
 
-    // Enable real-time sync
-    const unsubscribe = enableRealtimeSync(userId);
-
-    console.log('✅ Sync service initialized');
-    return unsubscribe;
+    // Try to enable real-time sync, but don't fail if it doesn't work
+    try {
+      const unsubscribe = enableRealtimeSync(userId);
+      console.log('✅ Real-time sync enabled');
+      return unsubscribe;
+    } catch (realtimeError) {
+      console.warn('⚠️ Real-time sync not available:', realtimeError);
+      return null;
+    }
   } catch (error) {
     console.error('❌ Failed to initialize sync service:', error);
-    throw error;
+    // Don't throw - return null to let app continue
+    return null;
   }
 };
 

@@ -1,6 +1,3 @@
-import firebase from '@react-native-firebase/app';
-import firestore from '@react-native-firebase/firestore';
-
 /**
  * Firebase Configuration
  * 
@@ -17,10 +14,24 @@ import firestore from '@react-native-firebase/firestore';
  * - Place it in: ios/upitracker/GoogleService-Info.plist
  */
 
-// Firebase initializes automatically from google-services.json
-// No need to call initializeApp() manually
+let firebase: any = null;
+let db: any = null;
+let isFirebaseAvailable = false;
 
-export const db = firestore();
+// Try to initialize Firebase - will fail gracefully if not available (e.g., in Expo Go)
+try {
+  firebase = require('@react-native-firebase/app').default;
+  const firestore = require('@react-native-firebase/firestore').default;
+  
+  // Firebase initializes automatically from google-services.json
+  db = firestore();
+  isFirebaseAvailable = true;
+  console.log('✅ Firebase initialized successfully');
+} catch (error: any) {
+  console.warn('⚠️ Firebase not available:', error.message);
+  console.warn('💡 App will work offline. To enable cloud sync, build with EAS or rebuild with Firebase native modules.');
+  isFirebaseAvailable = false;
+}
 
 // Collections
 export const COLLECTIONS = {
@@ -31,6 +42,9 @@ export const COLLECTIONS = {
 
 // Helper to get user's transaction collection
 export const getUserTransactionsRef = (userId: string = 'default') => {
+  if (!isFirebaseAvailable || !db) {
+    throw new Error('Firebase not initialized. App is running in offline mode.');
+  }
   return db.collection(COLLECTIONS.USERS)
     .doc(userId)
     .collection(COLLECTIONS.TRANSACTIONS);
@@ -38,10 +52,13 @@ export const getUserTransactionsRef = (userId: string = 'default') => {
 
 // Helper to get sync status
 export const getUserSyncStatusRef = (userId: string = 'default') => {
+  if (!isFirebaseAvailable || !db) {
+    throw new Error('Firebase not initialized. App is running in offline mode.');
+  }
   return db.collection(COLLECTIONS.USERS)
     .doc(userId)
     .collection(COLLECTIONS.SYNC_STATUS)
     .doc('status');
 };
 
-export default firebase;
+export { firebase, db, isFirebaseAvailable };

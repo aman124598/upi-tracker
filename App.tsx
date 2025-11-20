@@ -43,12 +43,14 @@ export default function App() {
         // Initialize Firebase sync (will gracefully fail if not configured)
         try {
           const unsubscribeSync = await initSyncService();
-          console.log('✅ Firebase sync enabled');
-          
-          // Cleanup on app unmount
-          return () => {
-            if (unsubscribeSync) unsubscribeSync();
-          };
+          if (unsubscribeSync) {
+            console.log('✅ Firebase sync enabled');
+            
+            // Store cleanup function if sync was enabled
+            return () => {
+              if (unsubscribeSync) unsubscribeSync();
+            };
+          }
         } catch (syncError) {
           console.log('⚠️ Firebase sync not configured yet - working offline only');
           console.log('💡 Follow setup instructions to enable cloud sync');

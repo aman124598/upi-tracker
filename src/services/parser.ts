@@ -101,27 +101,27 @@ const isFailedTransaction = (message: string): boolean => {
 const extractAmount = (message: string): number | null => {
   // Pattern: Rs, INR, ₹ followed by amount
   const patterns = [
-    // Bank-specific patterns
-    /(?:rs\.?|inr|₹)\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gi,
-    /(?:debited|paid|transferred|sent)\s(?:rs\.?|inr|₹)?\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gi,
-    /(?:amount|amt)(?:\s?:\s?)(?:rs\.?|inr|₹)?\s?(\d+(?:,\d{3})*(?:\.\d{1,2})?)/gi,
-    // SBI format: "Rs 450.00 debited"
-    /(?:rs|inr)\s?(\d+\.\d{2})\s+debited/gi,
-    // HDFC/ICICI format: "INR 1200 debited" or "Rs.1200 debited"
-    /(?:rs\.|inr)\s?(\d+(?:\.\d{2})?)\s+(?:debited|paid)/gi,
-    // Axis/Kotak format: "Amount: Rs.2500.00"
-    /amount\s?:\s?(?:rs\.|inr|₹)?\s?(\d+(?:\.\d{2})?)/gi,
-    // Generic format: "paid Rs.750.50"
-    /paid\s+(?:rs\.|inr|₹)?\s?(\d+(?:\.\d{2})?)/gi,
+    // SBI/Bank format: "Rs 450.00 debited" or "Rs.450.00 debited"
+    /(?:rs\.?|inr)\s+(\d+(?:\.\d{2})?)\s+debited/i,
+    // Format: "Rs 450.00 debited from"
+    /(?:rs\.?)\s+(\d+(?:\.\d{2})?)\s+debited/i,
+    // Format: "paid Rs.1200 to" or "paid Rs 1200"
+    /paid\s+(?:rs\.?|inr|₹)\s*(\d+(?:,\d{3})*(?:\.\d{1,2})?)/i,
+    // Format: "transferred to X via" with amount before
+    /(?:rs\.?|inr|₹)\s*(\d+(?:,\d{3})*(?:\.\d{1,2})?)\s+(?:transferred|sent|paid)/i,
+    // Format: "Amount: Rs 2500.00"
+    /amount\s*:?\s*(?:rs\.?|inr|₹)?\s*(\d+(?:,\d{3})*(?:\.\d{1,2})?)/i,
+    // Format: "INR 89.00 debited"
+    /(?:inr|₹)\s+(\d+(?:\.\d{2})?)/i,
+    // Generic: "Rs.1200" or "Rs 1200" anywhere
+    /(?:rs\.?|₹)\s*(\d+(?:,\d{3})*(?:\.\d{1,2})?)/i,
   ];
 
   for (const pattern of patterns) {
     const match = message.match(pattern);
-    if (match) {
-      // Extract numeric value
-      const numStr = match[0]
-        .replace(/rs\.?|inr|₹|debited|paid|transferred|sent|amount|amt|:|,/gi, '')
-        .trim();
+    if (match && match[1]) {
+      // Extract numeric value and remove commas
+      const numStr = match[1].replace(/,/g, '');
       const amount = parseFloat(numStr);
       if (!isNaN(amount) && amount > 0) {
         return amount;
@@ -137,27 +137,24 @@ const extractAmount = (message: string): number | null => {
  */
 const extractMerchant = (message: string): string | null => {
   const patterns = [
-    // Pattern: "to <merchant>"
-    /(?:to|TO)\s+([A-Za-z0-9\s@._-]+?)(?:\s+on|\s+for|\s+via|\s+ref|\s+upi|\.|\s+a\/c|$)/i,
-    
-    // Pattern: "paid to <merchant>"
-    /(?:paid to|sent to|transferred to)\s+([A-Za-z0-9\s@._-]+?)(?:\s+on|\s+for|\s+via|\s+ref|\s+upi|\.|\s+a\/c|$)/i,
-    
-    // Pattern: "in favour of <merchant>"
-    /(?:in favour of|in favor of)\s+([A-Za-z0-9\s@._-]+?)(?:\s+on|\s+for|\s+via|\s+ref|\s+upi|\.|\s+a\/c|$)/i,
-    
-    // Pattern: "VPA: <merchant@upi>"
-    /(?:vpa|VPA)(?:\s?:?\s?)([A-Za-z0-9._-]+@[A-Za-z0-9._-]+)/i,
-    
-    // Bank-specific patterns
-    // SBI: "to VPA zomato@paytm"
+    // Pattern: "to MERCHANT via" or "to MERCHANT on"
+    /to\s+([A-Za-z0-9\s&-]+?)\s+(?:via|on|for|ref|upi|\.|$)/i,
+    // Pattern: "paid to MERCHANT via"
+    /paid\s+to\s+([A-Za-z0-9\s&-]+?)\s+(?:via|on|\.|$)/i,
+    // Pattern: "Paid to MERCHANT via"
+    /Paid\s+to\s+([A-Za-z0-9\s&-]+?)\s+(?:via|on|\.|$)/i,
+    // Pattern: "transferred to MERCHANT via"
+    /transferred\s+to\s+([A-Za-z0-9\s&-]+?)\s+(?:via|on|\.|$)/i,
+    // Pattern: "sent to MERCHANT via"
+    /sent\s+to\s+([A-Za-z0-9\s&-]+?)\s+(?:via|on|\.|$)/i,
+    // Pattern: "VPA merchant@upi"
+    /VPA\s+([A-Za-z0-9._-]+@[A-Za-z0-9._-]+)/i,
+    // Pattern: "to VPA merchant@upi"
     /to\s+VPA\s+([A-Za-z0-9._-]+@[A-Za-z0-9._-]+)/i,
-    // HDFC/ICICI: "Paid to Swiggy via"
-    /paid\s+to\s+([A-Za-z0-9\s&]+)\s+via/i,
-    // Axis: "transferred to FLIPKART"
-    /transferred\s+to\s+([A-Za-z0-9\s&]+)(?:\s+via|\s+on|\.|$)/i,
-    // Generic: "Payment of Rs X made to <merchant>"
-    /payment.*made\s+to\s+([A-Za-z0-9\s&]+)(?:\s+via|\.|$)/i,
+    // Pattern: "in favour of MERCHANT"
+    /in\s+favour\s+of\s+([A-Za-z0-9\s&-]+?)(?:\s+via|\s+on|\.|$)/i,
+    // Pattern: "made to MERCHANT"
+    /made\s+to\s+([A-Za-z0-9\s&-]+?)(?:\s+via|\.|$)/i,
   ];
 
   for (const pattern of patterns) {
@@ -168,19 +165,11 @@ const extractMerchant = (message: string): string | null => {
       // Clean up merchant name
       merchant = merchant.replace(/\s+/g, ' '); // Remove extra spaces
       merchant = merchant.replace(/[^\w\s@._-]/g, ''); // Remove special chars
+      merchant = merchant.trim();
       
-      if (merchant.length > 2 && merchant.length < 100) {
+      if (merchant.length > 1 && merchant.length < 100) {
         return merchant;
       }
-    }
-  }
-
-  // Fallback: Try to find any text between "to" and common end markers
-  const fallbackMatch = message.match(/\bto\s+([A-Za-z0-9\s]+)/i);
-  if (fallbackMatch && fallbackMatch[1]) {
-    const merchant = fallbackMatch[1].trim().substring(0, 50);
-    if (merchant.length > 2) {
-      return merchant;
     }
   }
 
