@@ -12,16 +12,17 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
+  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { useTransactionStore } from '../store/transactionStore';
 import { TransactionCard } from '../components/TransactionCard';
 import { useFilteredTransactions } from '../hooks';
-import { TransactionCategory } from '../types';
+import { TransactionCategory, Transaction } from '../types';
 import { getAllCategories } from '../services/categorizer';
 
 export const TransactionsScreen = () => {
-  const { transactions } = useTransactionStore();
+  const { transactions, deleteTransaction } = useTransactionStore();
   const {
     filtered,
     searchTerm,
@@ -33,6 +34,28 @@ export const TransactionsScreen = () => {
 
   const [showFilters, setShowFilters] = useState(false);
   const categories = getAllCategories();
+
+  const handleDelete = (transaction: Transaction) => {
+    Alert.alert(
+      'Delete Transaction',
+      `Are you sure you want to delete the transaction for ${transaction.merchant}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (transaction.id) {
+              await deleteTransaction(transaction.id);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -124,7 +147,12 @@ export const TransactionsScreen = () => {
         <FlatList
           data={filtered}
           keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-          renderItem={({ item }) => <TransactionCard transaction={item} />}
+          renderItem={({ item }) => (
+            <TransactionCard 
+              transaction={item} 
+              onLongPress={() => handleDelete(item)}
+            />
+          )}
           contentContainerStyle={styles.listContent}
         />
       ) : (

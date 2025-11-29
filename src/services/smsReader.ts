@@ -208,14 +208,9 @@ export const readSMSMessages = async (
     //   maxCount: limit,
     // });
 
-    // For now, return mock data to demonstrate the flow
+    // For now, return empty result as native module is required
     console.log('📱 SMS reading requires native module implementation');
     console.log('📝 See src/services/smsReader.ts for integration details');
-
-    // In production, you would iterate through real messages:
-    // for (const smsMessage of messages) {
-    //   await processSingleSMS(smsMessage.body);
-    // }
 
     return { success, failed, duplicates };
   } catch (error) {
@@ -274,74 +269,4 @@ export const processSingleSMS = async (messageBody: string): Promise<boolean> =>
   }
 };
 
-/**
- * Manually add SMS for testing purposes
- * Useful for testing the parser without actual SMS access
- */
-export const addTestTransaction = async (smsText: string): Promise<boolean> => {
-  return await processSingleSMS(smsText);
-};
 
-/**
- * Get sample SMS messages for testing
- */
-export const getSampleSMS = (): string[] => {
-  return [
-    'Rs 450.00 debited from A/C XX1234 on 15-Nov-24 to VPA zomato@paytm via UPI. Ref 433847362847. -SBI',
-    'You have paid Rs.1200 to Swiggy via Google Pay. UPI Ref No: 434958473829',
-    'Your A/C XX5678 is debited with Rs.2500.00 on 16-Nov-24. Paid to FLIPKART via PhonePe. Ref: 837463829471',
-    'INR 89.00 debited from your account for Mobile Recharge - Jio via BHIM UPI. Ref: 123456789012',
-    'Rs.3500 transferred to Uber India via GPay on 17-Nov-24. UPI Ref: 938475839201',
-    'Payment of Rs 750.50 made to BigBasket via PhonePe. Transaction ID: 847362940183',
-    'Your OTP for login is 123456. Do not share with anyone. -HDFC Bank',
-    'Congratulations! You have won Rs.10,000 cashback. Click here to claim now!',
-  ];
-};
-
-/**
- * Test parser with sample SMS
- */
-export const testParser = async (): Promise<void> => {
-  const samples = getSampleSMS();
-  
-  console.log('🧪 Testing SMS Parser...\n');
-  
-  for (let i = 0; i < samples.length; i++) {
-    console.log(`\n📱 SMS ${i + 1}:`);
-    console.log(samples[i]);
-    console.log('\n📊 Parsed Result:');
-    
-    const result = parseSMS(samples[i]);
-    if (result) {
-      console.log('✅ Valid UPI Transaction');
-      console.log('Amount:', '₹' + result.amount);
-      console.log('Merchant:', result.merchant);
-      console.log('Source:', result.source);
-      console.log('Category:', categorizeTransaction(result.merchant));
-      if (result.upiRef) {
-        console.log('UPI Ref:', result.upiRef);
-      }
-    } else {
-      console.log('❌ Not a valid UPI transaction or filtered out');
-    }
-    console.log('---');
-  }
-};
-
-/**
- * Import sample transactions for testing
- */
-export const importSampleTransactions = async (): Promise<number> => {
-  const samples = getSampleSMS();
-  let imported = 0;
-
-  for (const sms of samples) {
-    const success = await processSingleSMS(sms);
-    if (success) {
-      imported++;
-    }
-  }
-
-  console.log(`✅ Imported ${imported} sample transactions`);
-  return imported;
-};

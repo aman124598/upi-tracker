@@ -18,7 +18,6 @@ import { DashboardScreen } from './src/screens/DashboardScreen';
 import { TransactionsScreen } from './src/screens/TransactionsScreen';
 import { AddTransactionScreen } from './src/screens/AddTransactionScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { DebugScreen } from './src/screens/DebugScreen';
 
 // Services
 import { initDatabase } from './src/services/db';
@@ -129,9 +128,6 @@ export default function App() {
                 case 'Add':
                   iconName = 'plus-circle';
                   break;
-                case 'Debug':
-                  iconName = focused ? 'bug' : 'bug-outline';
-                  break;
                 case 'Settings':
                   iconName = focused ? 'cog' : 'cog-outline';
                   break;
@@ -200,15 +196,6 @@ export default function App() {
             options={{
               title: 'Add',
               headerTitle: 'Add Transaction',
-            }}
-          />
-          
-          <Tab.Screen
-            name="Debug"
-            component={DebugScreen}
-            options={{
-              title: 'Debug',
-              headerTitle: 'SMS Parser Debug',
             }}
           />
           

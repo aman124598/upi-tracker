@@ -11,6 +11,7 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
 import { useTransactionStore } from '../store/transactionStore';
@@ -18,6 +19,7 @@ import { MonthlySummaryCard } from '../components/MonthlySummaryCard';
 import { TransactionCard } from '../components/TransactionCard';
 import { SyncStatusIndicator } from '../components/SyncStatusIndicator';
 import { getMonthName, getCurrentMonth } from '../utils/helpers';
+import { Transaction } from '../types';
 
 export const HomeScreen = () => {
   const {
@@ -27,6 +29,7 @@ export const HomeScreen = () => {
     loadTransactionsByMonth,
     getMonthlyTotal,
     getTransactionCount,
+    deleteTransaction,
   } = useTransactionStore();
 
   useEffect(() => {
@@ -36,6 +39,28 @@ export const HomeScreen = () => {
 
   const handleRefresh = () => {
     loadTransactionsByMonth(currentMonth);
+  };
+
+  const handleDelete = (transaction: Transaction) => {
+    Alert.alert(
+      'Delete Transaction',
+      `Are you sure you want to delete the transaction for ${transaction.merchant}?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (transaction.id) {
+              await deleteTransaction(transaction.id);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const monthlyTotal = getMonthlyTotal();
@@ -73,6 +98,7 @@ export const HomeScreen = () => {
             <TransactionCard
               key={transaction.id}
               transaction={transaction}
+              onLongPress={() => handleDelete(transaction)}
             />
           ))
         ) : (

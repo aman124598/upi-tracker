@@ -12,11 +12,13 @@ import { formatCurrency, formatDate, formatTime, getCategoryColor, getCategoryIc
 interface TransactionCardProps {
   transaction: Transaction;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
 export const TransactionCard: React.FC<TransactionCardProps> = ({
   transaction,
   onPress,
+  onLongPress,
 }) => {
   const categoryColor = getCategoryColor(transaction.category);
   const categoryIcon = getCategoryIcon(transaction.category);
@@ -25,6 +27,7 @@ export const TransactionCard: React.FC<TransactionCardProps> = ({
     <TouchableOpacity
       style={styles.card}
       onPress={onPress}
+      onLongPress={onLongPress}
       activeOpacity={0.7}
     >
       {/* Category icon */}

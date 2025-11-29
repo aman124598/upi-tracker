@@ -8,4 +8,4 @@ export { DashboardScreen } from './DashboardScreen';
 export { TransactionsScreen } from './TransactionsScreen';
 export { AddTransactionScreen } from './AddTransactionScreen';
 export { SettingsScreen } from './SettingsScreen';
-export { DebugScreen } from './DebugScreen';
+
