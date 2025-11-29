@@ -33,12 +33,27 @@ export default function App() {
   useEffect(() => {
     // Initialize database and SMS monitoring on app start
     const initialize = async () => {
+      // Set timeout to prevent infinite loading
+      const initTimeout = setTimeout(() => {
+        console.warn('⚠️ Initialization timeout - showing app anyway');
+        setIsReady(true);
+      }, 10000);
+      
       try {
         console.log('🚀 Initializing UPI Spend Tracker...');
         
-        // Initialize database
-        await initDatabase();
-        console.log('✅ Database initialized successfully');
+        // Initialize database with timeout protection
+        try {
+          await Promise.race([
+            initDatabase(),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Init timeout')), 8000)
+            )
+          ]);
+          console.log('✅ Database initialized successfully');
+        } catch (dbError) {
+          console.warn('⚠️ Database init skipped:', dbError);
+        }
         
         // Initialize Firebase sync (will gracefully fail if not configured)
         try {
@@ -53,24 +68,28 @@ export default function App() {
           }
         } catch (syncError) {
           console.log('⚠️ Firebase sync not configured yet - working offline only');
-          console.log('💡 Follow setup instructions to enable cloud sync');
         }
         
         // Start SMS monitoring for automatic transaction detection
-        const hasPermission = await checkSMSPermission();
-        if (hasPermission) {
-          const started = await startSMSMonitoring();
-          if (started) {
-            console.log('✅ Automatic SMS monitoring enabled');
+        try {
+          const hasPermission = await checkSMSPermission();
+          if (hasPermission) {
+            const started = await startSMSMonitoring();
+            if (started) {
+              console.log('✅ Automatic SMS monitoring enabled');
+            }
+          } else {
+            console.log('⚠️ SMS permissions not granted - automatic detection disabled');
           }
-        } else {
-          console.log('⚠️ SMS permissions not granted - automatic detection disabled');
-          console.log('💡 Grant SMS permissions in Settings to enable automatic transaction detection');
+        } catch (smsError) {
+          console.warn('⚠️ SMS monitoring skipped:', smsError);
         }
         
+        clearTimeout(initTimeout);
         setIsReady(true);
       } catch (error) {
         console.error('❌ Failed to initialize app:', error);
+        clearTimeout(initTimeout);
         setIsReady(true); // Still show app even if initialization fails
       }
     };
